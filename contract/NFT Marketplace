@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
+
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+/// @title NFT Marketplace Contract
+/// @notice List NFTs for sale and buy listed NFTs
+contract Project is ReentrancyGuard {
+    struct Listing {
+        address seller;
+        uint256 price;
+    }
+
+    // nftContract => tokenId => Listing
+    mapping(address => mapping(uint256 => Listing)) public listings;
+
+    event ItemListed(address indexed nftContract, uint256 indexed tokenId, address indexed seller, uint256 price);
+    event ItemBought(address indexed nftContract, uint256 indexed tokenId, address indexed buyer, uint256 price);
+    event ListingCanceled(address indexed nftContract, uint256 indexed tokenId, address indexed seller);
+
+    /// @notice List your NFT for sale (ensure approval first)
+    function listItem(address nftContract, uint256 tokenId, uint256 price) external nonReentrant {
+        require(price > 0, "Price must be > 0");
+        IERC721 nft = IERC721(nftContract);
+        require(nft.ownerOf(tokenId) == msg.sender, "Not owner");
+        require(nft.getApproved(tokenId) == address(this), "Marketplace not approved");
+
+        listings[nftContract][tokenId] = Listing(msg.sender, price);
+        emit ItemListed(nftContract, tokenId, msg.sender, price);
+    }
+
+    /// @notice Purchase a listed NFT
+    function buyItem(address nftContract, uint256 tokenId) external payable nonReentrant {
+        Listing memory listing = listings[nftContract][tokenId];
+        require(listing.price > 0, "Not listed");
+        require(msg.value == listing.price, "Incorrect payment");
+
+        delete listings[nftContract][tokenId];
+
+        IERC721(nftContract).transferFrom(listing.seller, msg.sender, tokenId);
+        payable(listing.seller).transfer(msg.value);
+
+        emit ItemBought(nftContract, tokenId, msg.sender, msg.value);
+    }
+
+    /// @notice Cancel your NFT listing
+    function cancelListing(address nftContract, uint256 tokenId) external nonReentrant {
+        Listing memory listing = listings[nftContract][tokenId];
+        require(listing.seller == msg.sender, "Not seller");
+        delete listings[nftContract][tokenId];
+        emit ListingCanceled(nftContract, tokenId, msg.sender);
+    }
+}
